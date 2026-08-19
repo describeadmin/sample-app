@@ -1,0 +1,68 @@
+# 项目 —— 端到端验收用例
+#
+# 由 codegen 生成。执行方式见 develop_plan.md 第五章。
+#
+# 约定：所有交互元素必须带 data-testid，命名 <模块>-<对象>-<动作>（CLAUDE.md 4.4）。
+# 没有 data-testid 的元素视为未完成，本用例会定位失败。
+
+scenario: 新增项目后在列表中可见
+preconditions:
+  - login_as: admin
+steps:
+  - action: navigate
+    target: /project
+  - action: click
+    selector: '[data-testid="project-add-btn"]'
+  - action: fill
+    selector: '[data-testid="project-project-name-input"]'
+    value: "测试项目名称-自动化"
+  - action: fill
+    selector: '[data-testid="project-project-code-input"]'
+    value: "测试项目编号-自动化"
+  - action: fill
+    selector: '[data-testid="project-owner-dept-id-input"]'
+    value: 1
+  - action: click
+    selector: '[data-testid="project-submit-btn"]'
+assertions:
+  # UI 与 DB 双重校验：仅凭页面看起来正常不足以下结论（develop_plan.md 5.4）
+  - type: ui
+    selector: '[data-testid="project-table"]'
+    expect: contains_text("测试项目名称-自动化")
+  - type: db
+    # 比对具体值而非 COUNT(*) —— 字符集损坏时计数依然正确（CLAUDE.md 3.6）
+    query: 'SELECT project_name FROM biz_project WHERE project_name = ''测试项目名称-自动化'' AND deleted = 0'
+    expect: equals("测试项目名称-自动化")
+  - type: db
+    # 审计字段应由框架自动填充，业务代码不赋值
+    query: 'SELECT COUNT(*) FROM biz_project WHERE project_name = ''测试项目名称-自动化'' AND create_time IS NOT NULL AND deleted = 0'
+    expect: equals(1)
+evidence:
+  - screenshot: after_each_step
+  - console_log: on_error
+  - network_log: on_error
+
+---
+scenario: 删除项目后列表中不再可见且物理行保留
+preconditions:
+  - login_as: admin
+  - db_seed: 'INSERT INTO biz_project (project_name, create_time, update_time, deleted, version) VALUES (''测试项目名称-自动化'', NOW(), NOW(), 0, 0)'
+steps:
+  - action: navigate
+    target: /project
+  - action: click
+    selector: '[data-testid="project-delete-btn"]'
+  - action: click
+    selector: '[data-testid="project-confirm-btn"]'
+assertions:
+  - type: ui
+    selector: '[data-testid="project-table"]'
+    expect: not_contains_text("测试项目名称-自动化")
+  - type: db
+    # 逻辑删除：列表查询过滤掉，但物理行必须仍在
+    query: 'SELECT deleted FROM biz_project WHERE project_name = ''测试项目名称-自动化'''
+    expect: equals(1)
+evidence:
+  - screenshot: after_each_step
+  - console_log: on_error
+  - network_log: on_error

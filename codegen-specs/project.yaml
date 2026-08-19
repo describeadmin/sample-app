@@ -1,0 +1,56 @@
+# sample-app 的业务模块定义。
+#
+# 这份 spec 是 codegen 的真实消费样本：项目管理模块的后端四件套、DDL、菜单 SQL、
+# 前端页面与验收用例全部由它生成，sample-app 里没有一行手写的 project 代码。
+#
+# 用它验证的是「业务方拿到生成器之后的真实体验」，而不是生成器自己的单元测试。
+
+basePackage: io.github.describeadmin.sample
+module: project
+entity: Project
+table: biz_project
+comment: 项目
+apiPrefix: /api/project
+
+fields:
+  - name: projectName
+    type: string
+    length: 128
+    nullable: false
+    comment: 项目名称
+    query: like
+    indexed: true
+
+  - name: projectCode
+    type: string
+    length: 64
+    comment: 项目编号
+    query: eq
+    indexed: true
+
+  - name: ownerDeptId
+    type: long
+    comment: 归口部门ID
+    query: eq
+    indexed: true
+
+  - name: budget
+    type: decimal
+    precision: 18
+    scale: 2
+    comment: 预算金额
+
+  - name: startDate
+    type: date
+    comment: 开始日期
+    query: range
+
+  - name: status
+    type: flag
+    nullable: false
+    comment: 状态
+    query: eq
+
+  - name: remark
+    type: text
+    comment: 备注

@@ -24,8 +24,9 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:db/schema-rbac.sql,classpath:db/schema-biz.sql
-      data-locations: classpath:db/seed-rbac.sql
+      schema-locations: classpath:db/schema-rbac.sql,classpath:db/schema-biz_project.sql
+      # menu-biz_project.sql 由 codegen 生成：没有它，生成的页面在系统里不可达
+      data-locations: classpath:db/seed-rbac.sql,classpath:db/menu-biz_project.sql
       # ⚠️ 必须显式指定，否则 Spring 用【平台默认编码】读脚本文件。
       # 中文 Windows 上默认是 GBK，会把 UTF-8 脚本读坏，库里中文全是乱码，
       # 而 COUNT(*) 校验完全正常（CLAUDE.md 3.6）
