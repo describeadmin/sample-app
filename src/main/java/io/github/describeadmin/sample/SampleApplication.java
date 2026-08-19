@@ -15,6 +15,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * </ol>
  */
 @SpringBootApplication
+// 只扫描业务方自己的 Mapper；框架的 Mapper 由 framework-system-starter
+// 的自动配置自行登记扫描路径，业务方不需要（也不应该）关心
 @MapperScan("io.github.describeadmin.sample.**.mapper")
 public class SampleApplication {
 

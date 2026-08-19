@@ -64,6 +64,16 @@
     </dependency>
 
     <!--
+      系统管理：用户 / 角色 / 菜单 / 部门 + 登录接口。
+      业务方引入这一个 starter 即得到可用的后台，无需自己实现 RBAC，
+      且框架修复能通过升版本直接拿到（develop_plan.md 目标 #5）。
+    -->
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-system-starter</artifactId>
+    </dependency>
+
+    <!--
       JDBC 驱动【由业务方自己声明】，框架不提供（develop_plan.md 2.3.2）。
       这里同样不写版本 —— 由 framework-bom 给出 5.7-safe 的默认值 8.2.0。
       若本业务方的目标库是 MySQL 8.0+ 或国产化数据库，在此处显式指定版本/换成对应驱动即可。
