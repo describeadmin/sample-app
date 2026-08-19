@@ -1,0 +1,88 @@
+# sample-app 仓库 CI —— Tier 1 双版本门禁的实际执行体
+#
+# ⚠️ 多仓拓扑的代价在这里具体化了：
+#    sample-app 依赖 framework 的 SNAPSHOT，单仓时一条 mvn install 就够，
+#    拆仓后必须【同时 checkout 两个仓库】再构建。每新增一个仓库就多一份这类配置。
+#    （develop_plan.md 3.1.1 与第十章「多仓拓扑的联调摩擦」已记录此项成本。）
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+  # framework 发生变更时可由其仓库通过 repository_dispatch 触发本工作流
+  repository_dispatch:
+    types: [framework-updated]
+
+jobs:
+  db-matrix:
+    name: 集成测试（${{ matrix.mysql }}）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # 两条线都跑完，一次看到全部问题
+      matrix:
+        mysql: ['mysql:5.7', 'mysql:8.4']
+    steps:
+      - name: 检出 framework
+        uses: actions/checkout@v4
+        with:
+          repository: describeadmin/framework
+          ref: ${{ github.event.client_payload.framework_ref || 'main' }}
+          path: framework
+
+      - name: 检出 sample-app
+        uses: actions/checkout@v4
+        with:
+          path: sample-app
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # 需要两个 JDK：21 构建 framework，17 构建 sample-app
+          # （sample-app 刻意用最低支持版本构建，验证 develop_plan.md 2.2.2 的承诺）
+          java-version: |
+            17
+            21
+          cache: maven
+
+      - name: 构建 framework 并安装到本地仓库
+        run: mvn -B -f framework/pom.xml clean install -DskipTests
+
+      - name: 集成测试（${{ matrix.mysql }}）
+        # Testcontainers 拉起对应版本 MySQL，验证审计填充、分页、逻辑删除、
+        # 乐观锁、中文往返、认证 SPI 的【运行时】行为
+        run: mvn -B -f sample-app/pom.xml test -Dmysql.image=${{ matrix.mysql }}
+
+  consumer-check:
+    name: 业务方依赖解析
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: describeadmin/framework, path: framework }
+      - uses: actions/checkout@v4
+        with: { path: sample-app }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: maven }
+
+      - run: mvn -B -f framework/pom.xml install -DskipTests
+
+      - name: 校验 framework-bom 能被业务方正确消费
+        run: |
+          # sample-app 的框架依赖均不写版本号，全靠 BOM 仲裁。
+          # BOM 的继承导出机制被破坏时，这里会直接解析失败。
+          mvn -B -f sample-app/pom.xml dependency:resolve
+          echo "  ✓ BOM 仲裁生效"
+
+      - name: 驱动版本提示（已知陷阱，见 develop_plan.md 2.3.3）
+        run: |
+          # 父 POM 继承的 dependencyManagement 优先级高于 import 的 BOM，
+          # 继承 spring-boot-starter-parent 的业务方需显式声明 <mysql.version>
+          ver=$(mvn -B -f sample-app/pom.xml dependency:tree -Dincludes=com.mysql:mysql-connector-j \
+                | grep -oE 'mysql-connector-j:jar:[0-9.]+' | head -1 | cut -d: -f3)
+          echo "解析到的驱动版本: ${ver:-未解析到}"
+          case "$ver" in
+            8.0.*|8.1.*|8.2.*) echo "  ✓ 支持 MySQL 5.7" ;;
+            *) echo "::warning::驱动 $ver 不支持 MySQL 5.7（Connector/J 自 8.3.0 起为 '8.0 and later'）" ;;
+          esac

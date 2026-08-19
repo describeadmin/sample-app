@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    业务模拟样板应用。
+
+    双重用途：
+      1. 验证框架的"业务方视角"是否真的成立 —— 只引 BOM，不写任何框架模块的版本号
+      2. 作为第七章兼容性测试门禁的载体，每次框架发版前跑一遍完整业务流程
+
+    注意本 POM 刻意【不继承】framework-parent —— 业务方不会继承框架的父 POM，
+    这里必须模拟真实业务方的依赖方式，否则验证没有意义。
+  -->
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.5.16</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>io.github.describeadmin.sample</groupId>
+  <artifactId>sample-app</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+
+  <name>describeadmin :: sample-app</name>
+  <description>业务模拟样板应用（Walking Skeleton）</description>
+
+  <properties>
+    <java.version>17</java.version>
+    <describeadmin.version>0.0.1-SNAPSHOT</describeadmin.version>
+    <!-- 默认取最严格的那条线；CI 矩阵覆盖为 mysql:8.4 -->
+    <mysql.image>mysql:5.7</mysql.image>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>io.github.describeadmin</groupId>
+        <artifactId>framework-bom</artifactId>
+        <version>${describeadmin.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- 注意：以下框架依赖均【不写版本号】，版本由 framework-bom 仲裁 -->
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-web-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-security-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-mybatis-starter</artifactId>
+    </dependency>
+
+    <!--
+      JDBC 驱动【由业务方自己声明】，框架不提供（develop_plan.md 2.3.2）。
+      这里同样不写版本 —— 由 framework-bom 给出 5.7-safe 的默认值 8.2.0。
+      若本业务方的目标库是 MySQL 8.0+ 或国产化数据库，在此处显式指定版本/换成对应驱动即可。
+    -->
+    <dependency>
+      <groupId>com.mysql</groupId>
+      <artifactId>mysql-connector-j</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!--
+      Testcontainers：让 `mvn test` 自身就是双版本门禁。
+
+      镜像版本通过系统属性 MYSQL_IMAGE 参数化（默认 mysql:5.7 —— 刻意让默认值是最严的那条线），
+      CI 矩阵只需改这一个变量就能覆盖 Tier 1 的两条线。
+      与 docker-compose.test.yml 的分工：compose 供 AI 端到端测试拉起完整环境，
+      Testcontainers 供 JVM 内的集成测试用，两者互不依赖。
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+
+      <!--
+        业务方工程同样需要 toolchains。
+
+        踩坑记录：本模块最初没有这段配置，构建时用了 PATH 上恰好存在的 JDK 11 去编译
+        release=17，直接报「不支持发行版本 17」。业务方开发机上常并存多个 JDK，
+        会一模一样地踩到，因此这段配置应作为业务方接入文档的一部分。
+
+        这里刻意指定 JDK 【17】而非 21 —— 用最低支持版本构建本工程，
+        端到端证明 develop_plan.md 2.2.2 的承诺成立：业务方只有 Java 17 也能用框架。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-toolchains-plugin</artifactId>
+        <version>3.3.0</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>select-jdk-toolchain</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <version>17</version>
+        </configuration>
+      </plugin>
+
+      <!--
+        Surefire 默认只识别 *Test / Test* / *Tests / *TestCase，
+        这里显式纳入 *IT —— 本项目的集成测试以 IT 结尾，且要随 `mvn test` 一起跑，
+        因为它们正是 Tier 1 双版本门禁的执行体，不能放进只在 verify 阶段执行的 failsafe。
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/*Tests.java</include>
+            <include>**/*IT.java</include>
+          </includes>
+          <!-- 强制 UTF-8：中文断言与测试输出不能受平台默认编码影响 -->
+          <argLine>-Dfile.encoding=UTF-8 -Dsun.stdout.encoding=UTF-8 -Dsun.stderr.encoding=UTF-8</argLine>
+          <systemPropertyVariables>
+            <!-- 双版本门禁开关：mvn test -Dmysql.image=mysql:8.4 -->
+            <mysql.image>${mysql.image}</mysql.image>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

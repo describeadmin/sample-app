@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: sample-app
+
+# 框架配置（前缀统一为 describeadmin.<模块>）
+describeadmin:
+  web:
+    trace:
+      enabled: true
+  mybatis:
+    # ⚠️ 不要硬编码在代码里 —— 目标库换成达梦/金仓/OceanBase 时改这里即可
+    db-type: MYSQL
+    max-limit: 500
+
+mybatis-plus:
+  global-config:
+    db-config:
+      # 主键策略：默认自增。需要切雪花时改成 ASSIGN_ID，实体类不用动
+      id-type: AUTO
+      logic-delete-field: deleted
+      logic-not-delete-value: 0
+      logic-delete-value: 1
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  pattern:
+    # 把 traceId 打进日志，便于与前端/网络日志对应（见 TraceIdFilter）
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId}] %logger{36} - %msg%n"
