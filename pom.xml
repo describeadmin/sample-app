@@ -31,7 +31,7 @@
 
   <properties>
     <java.version>17</java.version>
-    <describeadmin.version>0.0.1-SNAPSHOT</describeadmin.version>
+    <describeadmin.version>0.1.0</describeadmin.version>
     <!-- 默认取最严格的那条线；CI 矩阵覆盖为 mysql:8.4 -->
     <mysql.image>mysql:5.7</mysql.image>
   </properties>
