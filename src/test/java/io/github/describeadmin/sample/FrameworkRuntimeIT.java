@@ -11,12 +11,17 @@ import io.github.describeadmin.security.api.AuthUser;
 import io.github.describeadmin.security.api.AuthUserLoader;
 import io.github.describeadmin.security.api.LoginUser;
 import io.github.describeadmin.security.core.AuthProviderRegistry;
+import io.github.describeadmin.system.entity.SysRole;
+import io.github.describeadmin.system.entity.SysUser;
+import io.github.describeadmin.system.service.SysRoleService;
+import io.github.describeadmin.system.service.SysUserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,6 +42,8 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     @Autowired AuthProviderRegistry authRegistry;
     @Autowired AuthUserLoader userLoader;
     @Autowired JdbcTemplate jdbc;
+    @Autowired SysRoleService roleService;
+    @Autowired SysUserService userService;
 
     // ---------------------------------------------------------------- 环境
 
@@ -208,6 +215,35 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
                 new AuthRequest("no-such-provider", Map.of())))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("不支持的登录方式");
+    }
+
+    @Test
+    @DisplayName("角色未设置首页时，登录用户的 homePath 为 null，交由前端落回全局默认值")
+    void loginWithoutRoleHomePathReturnsNull() {
+        LoginUser user = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "admin", "password", "admin123")));
+
+        assertThat(user.getHomePath()).isNull();
+    }
+
+    @Test
+    @DisplayName("角色设置了首页后，登录用户的 homePath 携带该角色配置的路径")
+    void loginCarriesRoleHomePath() {
+        SysRole role = new SysRole();
+        role.setRoleCode("HOME_PATH_TEST");
+        role.setRoleName("首页测试角色");
+        role.setSort(0);
+        role.setHomePath("/system/dict");
+        roleService.save(role);
+
+        SysUser u = new SysUser();
+        u.setUsername("homepath-user");
+        userService.createUser(u, "pwd-123456", List.of(role.getId()));
+
+        LoginUser user = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "homepath-user", "password", "pwd-123456")));
+
+        assertThat(user.getHomePath()).isEqualTo("/system/dict");
     }
 
     // ---------------------------------------------------------------- helpers
