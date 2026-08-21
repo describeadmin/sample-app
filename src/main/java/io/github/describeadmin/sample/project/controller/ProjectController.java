@@ -55,7 +55,7 @@ public class ProjectController extends BaseController<ProjectService, ProjectMap
      * 而错误信息里没有任何东西指向"权限点前缀拼错了"。
      */
     @Override
-    protected String permPrefix() {
+    public String permPrefix() {
         return "project";
     }
 
