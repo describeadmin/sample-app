@@ -184,7 +184,60 @@ class SystemModuleIT extends AbstractMySqlIntegrationTest {
                 .contains("信息中心");
     }
 
+    @Test
+    @DisplayName("ancestors 物化路径在创建与移动部门时正确维护")
+    void ancestorsMaintainedOnCreateAndMove() {
+        Long rootId = deptService.list().get(0).getId();
+
+        Long level1Id = newDept("ancestors-测试-一级", rootId);
+        assertThat(deptService.getById(level1Id).getAncestors()).isEqualTo(String.valueOf(rootId));
+
+        Long level2Id = newDept("ancestors-测试-二级", level1Id);
+        assertThat(deptService.getById(level2Id).getAncestors()).isEqualTo(rootId + "," + level1Id);
+
+        // 把一级部门挪到一个新的根下，二级部门是它的子孙，ancestors 应跟着级联更新
+        Long newRootId = newDept("ancestors-测试-新根", 0L);
+        SysDept moved = new SysDept();
+        moved.setDeptName("ancestors-测试-一级");
+        moved.setParentId(newRootId);
+        moved.setSort(0);
+        moved.setStatus(1);
+        moved.setVersion(deptService.getById(level1Id).getVersion());
+        deptService.updateDept(level1Id, moved);
+
+        assertThat(deptService.getById(level1Id).getAncestors()).isEqualTo(String.valueOf(newRootId));
+        assertThat(deptService.getById(level2Id).getAncestors())
+                .as("移动父部门后，子孙的 ancestors 应级联更新，不能停留在旧路径")
+                .isEqualTo(newRootId + "," + level1Id);
+    }
+
+    @Test
+    @DisplayName("不能把部门移动到自己的子部门下，防止 ancestors 成环")
+    void cannotMoveDeptUnderOwnDescendant() {
+        Long parentId = newDept("ancestors-成环-父", 0L);
+        Long childId = newDept("ancestors-成环-子", parentId);
+
+        SysDept move = new SysDept();
+        move.setDeptName("ancestors-成环-父");
+        move.setParentId(childId);
+        move.setSort(0);
+        move.setStatus(1);
+        move.setVersion(deptService.getById(parentId).getVersion());
+
+        assertThatThrownBy(() -> deptService.updateDept(parentId, move))
+                .hasMessageContaining("不能把部门移动到自己或自己的子部门下");
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private Long newDept(String name, Long parentId) {
+        SysDept dept = new SysDept();
+        dept.setDeptName(name);
+        dept.setParentId(parentId);
+        dept.setSort(0);
+        dept.setStatus(1);
+        return deptService.createDept(dept).getId();
+    }
 
     private SysRole newRole(String code, String name) {
         SysRole r = new SysRole();
