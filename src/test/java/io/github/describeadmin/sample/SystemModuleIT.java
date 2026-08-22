@@ -87,6 +87,74 @@ class SystemModuleIT extends AbstractMySqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("创建用户时手机号/邮箱一并落库")
+    void createUserPersistsMobileAndEmail() {
+        SysUser u = new SysUser();
+        u.setUsername("mobile-email-user");
+        u.setMobile("13800000001");
+        u.setEmail("mobile-email-user@example.com");
+
+        SysUser created = userService.createUser(u, "pwd-123456", List.of());
+
+        SysUser fromDb = userService.getById(created.getId());
+        assertThat(fromDb.getMobile()).isEqualTo("13800000001");
+        assertThat(fromDb.getEmail()).isEqualTo("mobile-email-user@example.com");
+    }
+
+    @Test
+    @DisplayName("手机号重复被拒绝（应用层校验，非唯一索引）")
+    void duplicateMobileRejected() {
+        SysUser first = new SysUser();
+        first.setUsername("mobile-owner");
+        first.setMobile("13800000002");
+        userService.createUser(first, "pwd-123456", List.of());
+
+        SysUser second = new SysUser();
+        second.setUsername("mobile-challenger");
+        second.setMobile("13800000002");
+        assertThatThrownBy(() -> userService.createUser(second, "pwd-123456", List.of()))
+                .hasMessageContaining("手机号已被占用");
+    }
+
+    @Test
+    @DisplayName("邮箱重复被拒绝（应用层校验，非唯一索引）")
+    void duplicateEmailRejected() {
+        SysUser first = new SysUser();
+        first.setUsername("email-owner");
+        first.setEmail("shared@example.com");
+        userService.createUser(first, "pwd-123456", List.of());
+
+        SysUser second = new SysUser();
+        second.setUsername("email-challenger");
+        second.setEmail("shared@example.com");
+        assertThatThrownBy(() -> userService.createUser(second, "pwd-123456", List.of()))
+                .hasMessageContaining("邮箱已被占用");
+    }
+
+    @Test
+    @DisplayName("手机号/邮箱唯一性校验排除自己：改别的字段但手机号没变不应误判为冲突")
+    void mobileEmailUniqueCheckExcludesSelf() {
+        SysUser other = new SysUser();
+        other.setUsername("self-check-other");
+        other.setMobile("13800000004");
+        userService.createUser(other, "pwd-123456", List.of());
+
+        SysUser u = new SysUser();
+        u.setUsername("self-check-user");
+        u.setMobile("13800000003");
+        u.setEmail("self-check@example.com");
+        SysUser created = userService.createUser(u, "pwd-123456", List.of());
+
+        // 传入自己的 id，同样的手机号/邮箱不应被判定为"被占用"
+        userService.assertMobileEmailAvailable(created.getId(), "13800000003", "self-check@example.com");
+
+        // 换一个真实存在于别人身上的手机号，才应该被拒绝
+        assertThatThrownBy(() ->
+                userService.assertMobileEmailAvailable(created.getId(), "13800000004", null))
+                .hasMessageContaining("手机号已被占用");
+    }
+
+    @Test
     @DisplayName("重置密码后旧密码失效、新密码生效")
     void resetPassword() {
         SysUser u = new SysUser();

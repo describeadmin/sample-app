@@ -189,6 +189,33 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("loadByUserId 与 loadByUsername 拼出同一个完整用户")
+    void loadByUserIdMatchesLoadByUsername() {
+        AuthUser byUsername = userLoader.loadByUsername("admin").orElseThrow();
+
+        Optional<AuthUser> byId = userLoader.loadByUserId(byUsername.getUserId());
+
+        assertThat(byId).isPresent();
+        AuthUser found = byId.get();
+        assertThat(found.getUserId()).isEqualTo(byUsername.getUserId());
+        assertThat(found.getUsername()).isEqualTo(byUsername.getUsername());
+        assertThat(found.getNickname()).isEqualTo(byUsername.getNickname());
+        assertThat(found.isEnabled()).isEqualTo(byUsername.isEnabled());
+        assertThat(found.getRoles()).isEqualTo(byUsername.getRoles());
+        assertThat(found.getPermissions()).isEqualTo(byUsername.getPermissions());
+        assertThat(found.getDeptId()).isEqualTo(byUsername.getDeptId());
+        assertThat(found.getDataScope()).isEqualTo(byUsername.getDataScope());
+        assertThat(found.getCustomDeptIds()).isEqualTo(byUsername.getCustomDeptIds());
+        assertThat(found.getHomePath()).isEqualTo(byUsername.getHomePath());
+    }
+
+    @Test
+    @DisplayName("loadByUserId 对不存在的 id 返回空")
+    void loadByUserIdReturnsEmptyForUnknownId() {
+        assertThat(userLoader.loadByUserId(-1L)).isEmpty();
+    }
+
+    @Test
     @DisplayName("用户名密码登录成功，并带出角色与权限")
     void loginSucceeds() {
         LoginUser user = authRegistry.authenticate(new AuthRequest("password",
