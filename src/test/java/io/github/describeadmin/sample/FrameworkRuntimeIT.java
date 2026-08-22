@@ -10,13 +10,25 @@ import io.github.describeadmin.security.api.AuthRequest;
 import io.github.describeadmin.security.api.AuthUser;
 import io.github.describeadmin.security.api.AuthUserLoader;
 import io.github.describeadmin.security.api.LoginUser;
+import io.github.describeadmin.security.api.TokenStore;
 import io.github.describeadmin.security.core.AuthProviderRegistry;
+import io.github.describeadmin.system.controller.SysUserController;
+import io.github.describeadmin.system.entity.SysRole;
+import io.github.describeadmin.system.entity.SysUser;
+import io.github.describeadmin.system.service.SysRoleService;
+import io.github.describeadmin.system.service.SysUserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -37,6 +49,10 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     @Autowired AuthProviderRegistry authRegistry;
     @Autowired AuthUserLoader userLoader;
     @Autowired JdbcTemplate jdbc;
+    @Autowired SysRoleService roleService;
+    @Autowired SysUserService userService;
+    @Autowired SysUserController userController;
+    @Autowired TokenStore tokenStore;
 
     // ---------------------------------------------------------------- 环境
 
@@ -182,6 +198,33 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("loadByUserId 与 loadByUsername 拼出同一个完整用户")
+    void loadByUserIdMatchesLoadByUsername() {
+        AuthUser byUsername = userLoader.loadByUsername("admin").orElseThrow();
+
+        Optional<AuthUser> byId = userLoader.loadByUserId(byUsername.getUserId());
+
+        assertThat(byId).isPresent();
+        AuthUser found = byId.get();
+        assertThat(found.getUserId()).isEqualTo(byUsername.getUserId());
+        assertThat(found.getUsername()).isEqualTo(byUsername.getUsername());
+        assertThat(found.getNickname()).isEqualTo(byUsername.getNickname());
+        assertThat(found.isEnabled()).isEqualTo(byUsername.isEnabled());
+        assertThat(found.getRoles()).isEqualTo(byUsername.getRoles());
+        assertThat(found.getPermissions()).isEqualTo(byUsername.getPermissions());
+        assertThat(found.getDeptId()).isEqualTo(byUsername.getDeptId());
+        assertThat(found.getDataScope()).isEqualTo(byUsername.getDataScope());
+        assertThat(found.getCustomDeptIds()).isEqualTo(byUsername.getCustomDeptIds());
+        assertThat(found.getHomePath()).isEqualTo(byUsername.getHomePath());
+    }
+
+    @Test
+    @DisplayName("loadByUserId 对不存在的 id 返回空")
+    void loadByUserIdReturnsEmptyForUnknownId() {
+        assertThat(userLoader.loadByUserId(-1L)).isEmpty();
+    }
+
+    @Test
     @DisplayName("用户名密码登录成功，并带出角色与权限")
     void loginSucceeds() {
         LoginUser user = authRegistry.authenticate(new AuthRequest("password",
@@ -210,7 +253,177 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
                 .hasMessageContaining("不支持的登录方式");
     }
 
+    @Test
+    @DisplayName("角色未设置首页时，登录用户的 homePath 为 null，交由前端落回全局默认值")
+    void loginWithoutRoleHomePathReturnsNull() {
+        LoginUser user = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "admin", "password", "admin123")));
+
+        assertThat(user.getHomePath()).isNull();
+    }
+
+    @Test
+    @DisplayName("角色设置了首页后，登录用户的 homePath 携带该角色配置的路径")
+    void loginCarriesRoleHomePath() {
+        SysRole role = new SysRole();
+        role.setRoleCode("HOME_PATH_TEST");
+        role.setRoleName("首页测试角色");
+        role.setSort(0);
+        role.setHomePath("/system/dict");
+        roleService.save(role);
+
+        SysUser u = new SysUser();
+        u.setUsername("homepath-user");
+        userService.createUser(u, "pwd-123456", List.of(role.getId()));
+
+        LoginUser user = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "homepath-user", "password", "pwd-123456")));
+
+        assertThat(user.getHomePath()).isEqualTo("/system/dict");
+    }
+
+    // ---------------------------------------------------------------- 改密码 / 禁用账号：令牌吊销
+
+    @Test
+    @DisplayName("管理员重置密码后，该用户已签发的令牌立即失效（docs/LOGIN_MODULE_AUDIT.md B 项）")
+    void resetPasswordRevokesExistingTokens() {
+        SysUser u = new SysUser();
+        u.setUsername("revoke-on-reset-pwd");
+        userService.createUser(u, "old-password-1", List.of());
+
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "revoke-on-reset-pwd", "password", "old-password-1")));
+        String token = tokenStore.issue(loginUser);
+        assertThat(tokenStore.resolve(token)).as("重置前令牌应有效").isPresent();
+
+        userService.resetPassword(u.getId(), "new-password-1");
+
+        assertThat(tokenStore.resolve(token)).as("重置密码后旧令牌应立即失效").isEmpty();
+    }
+
+    @Test
+    @DisplayName("自助改密：旧密码错误时拒绝，且不吊销任何令牌")
+    void changeOwnPasswordRejectsWrongOldPassword() {
+        SysUser u = new SysUser();
+        u.setUsername("change-pwd-wrong-old");
+        userService.createUser(u, "correct-old-1", List.of());
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "change-pwd-wrong-old", "password", "correct-old-1")));
+        String token = tokenStore.issue(loginUser);
+
+        assertThatThrownBy(() -> userService.changeOwnPassword(u.getId(), "not-the-old-one", "new-pwd-1"))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("原密码不正确");
+
+        assertThat(tokenStore.resolve(token)).as("校验失败不应吊销任何令牌").isPresent();
+    }
+
+    @Test
+    @DisplayName("自助改密：旧密码正确则成功，且吊销全部旧令牌")
+    void changeOwnPasswordSucceedsAndRevokesTokens() {
+        SysUser u = new SysUser();
+        u.setUsername("change-pwd-success");
+        userService.createUser(u, "old-pwd-1", List.of());
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "change-pwd-success", "password", "old-pwd-1")));
+        String token = tokenStore.issue(loginUser);
+
+        userService.changeOwnPassword(u.getId(), "old-pwd-1", "brand-new-pwd-1");
+
+        assertThat(tokenStore.resolve(token)).as("改密成功后旧令牌应立即失效").isEmpty();
+        // 新密码确实生效：用它能登录
+        assertThat(authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "change-pwd-success", "password", "brand-new-pwd-1"))))
+                .isNotNull();
+    }
+
+    @Test
+    @DisplayName("把账号 status 显式改为 0（禁用）后，已签发令牌立即失效")
+    void disablingAccountRevokesExistingTokens() {
+        SysUser u = new SysUser();
+        u.setUsername("revoke-on-disable");
+        userService.createUser(u, "pwd-12345", List.of());
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "revoke-on-disable", "password", "pwd-12345")));
+        String token = tokenStore.issue(loginUser);
+
+        // 先取出完整实体再改动一个字段——通用 update() 在本项目里按实际值生成 UPDATE，
+        // 拿一个只设了 status 的裸对象去更新会把其余列（如 username）显式置空
+        // （见 SysUser.password 字段注释里 SysDeptService.updateDept 的同类先例）
+        SysUser patch = userService.getById(u.getId());
+        patch.setStatus(0);
+        // Controller 挂了 @OperLog，切面要从 SecurityContext 取当前操作人——直接调用
+        // Controller 方法（绕开 HTTP 过滤器链）必须自己模拟 TokenAuthenticationFilter
+        // 本该做的事，否则会因为"上下文里没有 Authentication"而报错
+        asAdmin(() -> userController.update(u.getId(), patch));
+
+        assertThat(tokenStore.resolve(token)).as("禁用账号后旧令牌应立即失效").isEmpty();
+    }
+
+    @Test
+    @DisplayName("编辑账号但不改 status 时，不触发任何令牌吊销")
+    void editingOtherFieldsDoesNotRevokeTokens() {
+        SysUser u = new SysUser();
+        u.setUsername("no-revoke-on-other-edit");
+        u.setNickname("旧昵称");
+        userService.createUser(u, "pwd-12345", List.of());
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "no-revoke-on-other-edit", "password", "pwd-12345")));
+        String token = tokenStore.issue(loginUser);
+
+        SysUser patch = userService.getById(u.getId());
+        patch.setNickname("新昵称");
+        asAdmin(() -> userController.update(u.getId(), patch));
+
+        assertThat(tokenStore.resolve(token)).as("只改昵称不应吊销令牌").isPresent();
+    }
+
+    // ---------------------------------------------------------------- access/refresh 双令牌
+
+    @Test
+    @DisplayName("issueWithRefresh 签发的一对令牌都能独立解析，且 refresh 换发后旧的立即失效")
+    void issueWithRefreshRotatesToken() {
+        LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "admin", "password", "admin123")));
+
+        var tokens = tokenStore.issueWithRefresh(loginUser);
+        assertThat(tokenStore.resolve(tokens.getAccessToken())).isPresent();
+        assertThat(tokens.getRefreshToken()).isNotBlank();
+
+        var refreshed = tokenStore.refresh(tokens.getRefreshToken());
+        assertThat(refreshed).isPresent();
+        assertThat(refreshed.get().getRefreshToken()).isNotEqualTo(tokens.getRefreshToken());
+        // 旧 refresh token 只能用一次
+        assertThat(tokenStore.refresh(tokens.getRefreshToken())).isEmpty();
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * 以管理员身份临时填充 SecurityContext 执行一段动作，模拟
+     * {@code TokenAuthenticationFilter} 在真实 HTTP 请求里做的事——直接调用带
+     * {@code @OperLog}/依赖 {@code CurrentUserProvider} 的 Controller 方法时，
+     * 绕开了过滤器链，必须自己把这一步补上，否则会抛
+     * {@code AuthenticationCredentialsNotFoundException}。
+     */
+    private void asAdmin(Runnable action) {
+        LoginUser admin = authRegistry.authenticate(new AuthRequest("password",
+                Map.of("username", "admin", "password", "admin123")));
+        List<GrantedAuthority> authorities = new ArrayList<>();
+        for (String role : admin.getRoles()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+        }
+        for (String permission : admin.getPermissions()) {
+            authorities.add(new SimpleGrantedAuthority(permission));
+        }
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(admin, null, authorities));
+        try {
+            action.run();
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
 
     private static ProjectEntity newProject(String name) {
         ProjectEntity p = new ProjectEntity();

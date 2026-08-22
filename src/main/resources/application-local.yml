@@ -32,12 +32,33 @@ spring:
       # 而 COUNT(*) 校验完全正常（CLAUDE.md 3.6）
       encoding: UTF-8
 
+  # 邮箱验证码登录本地联调用的假 SMTP：
+  #   docker run -d --name da-mailhog -p 1025:1025 -p 8025:8025 mailhog/mailhog
+  # 发出的验证码邮件在 http://localhost:8025 的 Web UI 里能直接肉眼看到。
+  # ⚠️ 生产环境必须替换成真实 SMTP 凭据，不要沿用这一段。
+  mail:
+    host: localhost
+    port: 1025
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
 describeadmin:
   security:
     # 令牌有效期。本地调试放长一点，免得开着调试器就过期了
     token-ttl: 12h
     # allowed-origins 刻意留空：开发期走 frontend 的 vite dev server 代理，
     # 从根本上不产生跨域，也就不存在「开发期放开的 CORS 被带上生产」这类事故
+    permit-all:
+      # 邮箱插件自己的发码端点——核心的内置白名单不会包含插件路径（分层硬边界），
+      # 不加这一条会直接 401，见 framework-auth-email-starter 的 README
+      - /api/auth/email/code
+  auth:
+    email:
+      enabled: true
 
 logging:
   level:

@@ -31,7 +31,7 @@
 
   <properties>
     <java.version>17</java.version>
-    <describeadmin.version>0.1.1</describeadmin.version>
+    <describeadmin.version>0.2.0-SNAPSHOT</describeadmin.version>
     <!-- 默认取最严格的那条线；CI 矩阵覆盖为 mysql:8.4 -->
     <mysql.image>mysql:5.7</mysql.image>
   </properties>
@@ -74,6 +74,24 @@
     </dependency>
 
     <!--
+      邮箱验证码登录插件。第一次在本仓引入未发布到 Central 的插件——
+      framework-bom 刻意不仲裁插件版本（docs/registry.md 准入规范第 4 条：
+      插件版本与框架版本无对应关系），因此这里必须【显式写版本号】，
+      与上面几个框架 starter"不写版本号、由 BOM 仲裁"的姿势不同。
+      未发布期间需要先 `mvn -f framework-auth-email-starter/pom.xml install -Dgpg.skip=true`
+      把它装进本机 .m2 才能解析到。
+    -->
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-auth-email-starter</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-mail</artifactId>
+    </dependency>
+
+    <!--
       JDBC 驱动【由业务方自己声明】，框架不提供（develop_plan.md 2.3.2）。
       这里同样不写版本 —— 由 framework-bom 给出 5.7-safe 的默认值 8.2.0。
       若本业务方的目标库是 MySQL 8.0+ 或国产化数据库，在此处显式指定版本/换成对应驱动即可。
@@ -106,6 +124,14 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- 邮箱验证码登录端到端测试用的假 SMTP 服务器，理由同 framework-auth-email-starter 自己的测试 -->
+    <dependency>
+      <groupId>com.icegreen</groupId>
+      <artifactId>greenmail</artifactId>
+      <version>2.1.12</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

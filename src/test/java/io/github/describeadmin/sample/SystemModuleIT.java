@@ -87,6 +87,74 @@ class SystemModuleIT extends AbstractMySqlIntegrationTest {
     }
 
     @Test
+    @DisplayName("创建用户时手机号/邮箱一并落库")
+    void createUserPersistsMobileAndEmail() {
+        SysUser u = new SysUser();
+        u.setUsername("mobile-email-user");
+        u.setMobile("13800000001");
+        u.setEmail("mobile-email-user@example.com");
+
+        SysUser created = userService.createUser(u, "pwd-123456", List.of());
+
+        SysUser fromDb = userService.getById(created.getId());
+        assertThat(fromDb.getMobile()).isEqualTo("13800000001");
+        assertThat(fromDb.getEmail()).isEqualTo("mobile-email-user@example.com");
+    }
+
+    @Test
+    @DisplayName("手机号重复被拒绝（应用层校验，非唯一索引）")
+    void duplicateMobileRejected() {
+        SysUser first = new SysUser();
+        first.setUsername("mobile-owner");
+        first.setMobile("13800000002");
+        userService.createUser(first, "pwd-123456", List.of());
+
+        SysUser second = new SysUser();
+        second.setUsername("mobile-challenger");
+        second.setMobile("13800000002");
+        assertThatThrownBy(() -> userService.createUser(second, "pwd-123456", List.of()))
+                .hasMessageContaining("手机号已被占用");
+    }
+
+    @Test
+    @DisplayName("邮箱重复被拒绝（应用层校验，非唯一索引）")
+    void duplicateEmailRejected() {
+        SysUser first = new SysUser();
+        first.setUsername("email-owner");
+        first.setEmail("shared@example.com");
+        userService.createUser(first, "pwd-123456", List.of());
+
+        SysUser second = new SysUser();
+        second.setUsername("email-challenger");
+        second.setEmail("shared@example.com");
+        assertThatThrownBy(() -> userService.createUser(second, "pwd-123456", List.of()))
+                .hasMessageContaining("邮箱已被占用");
+    }
+
+    @Test
+    @DisplayName("手机号/邮箱唯一性校验排除自己：改别的字段但手机号没变不应误判为冲突")
+    void mobileEmailUniqueCheckExcludesSelf() {
+        SysUser other = new SysUser();
+        other.setUsername("self-check-other");
+        other.setMobile("13800000004");
+        userService.createUser(other, "pwd-123456", List.of());
+
+        SysUser u = new SysUser();
+        u.setUsername("self-check-user");
+        u.setMobile("13800000003");
+        u.setEmail("self-check@example.com");
+        SysUser created = userService.createUser(u, "pwd-123456", List.of());
+
+        // 传入自己的 id，同样的手机号/邮箱不应被判定为"被占用"
+        userService.assertMobileEmailAvailable(created.getId(), "13800000003", "self-check@example.com");
+
+        // 换一个真实存在于别人身上的手机号，才应该被拒绝
+        assertThatThrownBy(() ->
+                userService.assertMobileEmailAvailable(created.getId(), "13800000004", null))
+                .hasMessageContaining("手机号已被占用");
+    }
+
+    @Test
     @DisplayName("重置密码后旧密码失效、新密码生效")
     void resetPassword() {
         SysUser u = new SysUser();
@@ -184,7 +252,60 @@ class SystemModuleIT extends AbstractMySqlIntegrationTest {
                 .contains("信息中心");
     }
 
+    @Test
+    @DisplayName("ancestors 物化路径在创建与移动部门时正确维护")
+    void ancestorsMaintainedOnCreateAndMove() {
+        Long rootId = deptService.list().get(0).getId();
+
+        Long level1Id = newDept("ancestors-测试-一级", rootId);
+        assertThat(deptService.getById(level1Id).getAncestors()).isEqualTo(String.valueOf(rootId));
+
+        Long level2Id = newDept("ancestors-测试-二级", level1Id);
+        assertThat(deptService.getById(level2Id).getAncestors()).isEqualTo(rootId + "," + level1Id);
+
+        // 把一级部门挪到一个新的根下，二级部门是它的子孙，ancestors 应跟着级联更新
+        Long newRootId = newDept("ancestors-测试-新根", 0L);
+        SysDept moved = new SysDept();
+        moved.setDeptName("ancestors-测试-一级");
+        moved.setParentId(newRootId);
+        moved.setSort(0);
+        moved.setStatus(1);
+        moved.setVersion(deptService.getById(level1Id).getVersion());
+        deptService.updateDept(level1Id, moved);
+
+        assertThat(deptService.getById(level1Id).getAncestors()).isEqualTo(String.valueOf(newRootId));
+        assertThat(deptService.getById(level2Id).getAncestors())
+                .as("移动父部门后，子孙的 ancestors 应级联更新，不能停留在旧路径")
+                .isEqualTo(newRootId + "," + level1Id);
+    }
+
+    @Test
+    @DisplayName("不能把部门移动到自己的子部门下，防止 ancestors 成环")
+    void cannotMoveDeptUnderOwnDescendant() {
+        Long parentId = newDept("ancestors-成环-父", 0L);
+        Long childId = newDept("ancestors-成环-子", parentId);
+
+        SysDept move = new SysDept();
+        move.setDeptName("ancestors-成环-父");
+        move.setParentId(childId);
+        move.setSort(0);
+        move.setStatus(1);
+        move.setVersion(deptService.getById(parentId).getVersion());
+
+        assertThatThrownBy(() -> deptService.updateDept(parentId, move))
+                .hasMessageContaining("不能把部门移动到自己或自己的子部门下");
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private Long newDept(String name, Long parentId) {
+        SysDept dept = new SysDept();
+        dept.setDeptName(name);
+        dept.setParentId(parentId);
+        dept.setSort(0);
+        dept.setStatus(1);
+        return deptService.createDept(dept).getId();
+    }
 
     private SysRole newRole(String code, String name) {
         SysRole r = new SysRole();

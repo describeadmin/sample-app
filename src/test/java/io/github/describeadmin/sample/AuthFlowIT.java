@@ -130,6 +130,78 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
         assertThat((List<?>) resp.getBody().get("data")).isNotEmpty();
     }
 
+    // ------------------------------------------------------------------ 刷新令牌（E 项）
+
+    @Test
+    @DisplayName("登录成功同时返回 refreshToken，且 expiresIn/refreshExpiresIn 都是正数")
+    void loginReturnsRefreshToken() {
+        Map<?, ?> data = loginAsAdmin();
+
+        assertThat(data.get("refreshToken")).asString().isNotBlank();
+        assertThat(((Number) data.get("expiresIn")).longValue()).isPositive();
+        assertThat(((Number) data.get("refreshExpiresIn")).longValue()).isPositive();
+    }
+
+    @Test
+    @DisplayName("用 refresh token 换发新令牌成功，新 access token 立即可用")
+    @SuppressWarnings("unchecked")
+    void refreshIssuesNewAccessToken() {
+        Map<?, ?> data = loginAsAdmin();
+        String refreshToken = String.valueOf(data.get("refreshToken"));
+
+        ResponseEntity<Map> resp = rest.postForEntity("/api/auth/refresh",
+                json(Map.of("refreshToken", refreshToken)), Map.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> refreshed = (Map<String, Object>) resp.getBody().get("data");
+        String newAccessToken = String.valueOf(refreshed.get("token"));
+        assertThat(newAccessToken).isNotBlank();
+
+        assertThat(rest.exchange("/api/auth/me", HttpMethod.GET,
+                new HttpEntity<>(bearer(newAccessToken)), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("刷新后旧 refresh token 立即失效（轮换），不能再用一次")
+    void refreshRotatesOldRefreshToken() {
+        Map<?, ?> data = loginAsAdmin();
+        String refreshToken = String.valueOf(data.get("refreshToken"));
+
+        rest.postForEntity("/api/auth/refresh", json(Map.of("refreshToken", refreshToken)), Map.class);
+
+        // 业务异常统一返回 HTTP 200，真正的错误信息体现在响应体的 code 字段里——
+        // 只有 Spring Security 过滤器链自身的拒绝（缺令牌/权限不足）才映射到真实 HTTP 状态码，
+        // 见 GlobalExceptionHandler 的类注释
+        ResponseEntity<String> second = rest.postForEntity("/api/auth/refresh",
+                json(Map.of("refreshToken", refreshToken)), String.class);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(second.getBody()).contains("\"code\":40100").contains("刷新令牌无效或已过期");
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/refresh 本身免认证——挂权限校验会自相矛盾")
+    void refreshEndpointIsPermitAll() {
+        Map<?, ?> data = loginAsAdmin();
+        String refreshToken = String.valueOf(data.get("refreshToken"));
+
+        // 不带 Authorization 头
+        ResponseEntity<String> resp = rest.postForEntity("/api/auth/refresh",
+                json(Map.of("refreshToken", refreshToken)), String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("无效的 refresh token 返回业务错误码，而不是 500")
+    void refreshWithInvalidTokenReturnsBizError() {
+        ResponseEntity<String> resp = rest.postForEntity("/api/auth/refresh",
+                json(Map.of("refreshToken", "not-a-real-refresh-token")), String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("\"code\":40100");
+    }
+
     // ------------------------------------------------------------------ 登出
 
     @Test
