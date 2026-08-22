@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,6 +113,46 @@ class LoginLockoutIT extends AbstractMySqlIntegrationTest {
                 .isEqualTo(HttpStatus.OK);
     }
 
+    // ------------------------------------------------------------------ 管理侧可观测性（D 项）
+
+    @Test
+    @DisplayName("锁定后出现在 locked-accounts 列表里，手动解锁后立即可以重新登录")
+    void adminCanListAndUnlockLockedAccount() {
+        String username = "lockout-admin-unlock";
+        createUser(username, "right-password-1");
+        for (int i = 0; i < MAX_FAILURES; i++) {
+            login(username, "wrong-password");
+        }
+        // 达到阈值后密码正确也进不去，见 correctPasswordRejectedWhileLocked
+        assertThat(login(username, "right-password-1").getBody()).contains("锁定");
+
+        ResponseEntity<Map> listed = rest.exchange("/api/system/security/locked-accounts",
+                HttpMethod.GET, new HttpEntity<>(bearer(tokenOfAdmin())), Map.class);
+        assertThat(listed.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        List<String> locked = (List<String>) listed.getBody().get("data");
+        assertThat(locked).contains(username);
+
+        ResponseEntity<Map> unlocked = rest.exchange("/api/system/security/locked-accounts/" + username,
+                HttpMethod.DELETE, new HttpEntity<>(bearer(tokenOfAdmin())), Map.class);
+        assertThat(unlocked.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // 手动解锁后立即可以用正确密码登录，不用等 15 分钟窗口
+        assertThat(login(username, "right-password-1").getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("没有 system:security:list 权限点的普通账号被拒绝（403），而不是意外放行")
+    void lockedAccountsEndpointRequiresPermission() {
+        String username = "lockout-no-perm";
+        createUser(username, "pwd-perm-1"); // createUser 不分配任何角色，因此没有任何权限点
+
+        ResponseEntity<String> resp = rest.exchange("/api/system/security/locked-accounts",
+                HttpMethod.GET, new HttpEntity<>(bearer(tokenOf(username, "pwd-perm-1"))), String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     // ------------------------------------------------------------------ 工具
 
     private ResponseEntity<String> login(String username, String password) {
@@ -133,8 +174,12 @@ class LoginLockoutIT extends AbstractMySqlIntegrationTest {
     }
 
     private String tokenOfAdmin() {
+        return tokenOf("admin", "admin123");
+    }
+
+    private String tokenOf(String username, String password) {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", username, "password", password)),
                 Map.class);
         assertThat(resp.getStatusCode()).as("登录应成功，检查种子数据").isEqualTo(HttpStatus.OK);
         return String.valueOf(((Map<?, ?>) resp.getBody().get("data")).get("token"));
