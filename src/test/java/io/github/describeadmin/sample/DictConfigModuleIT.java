@@ -1,6 +1,7 @@
 package io.github.describeadmin.sample;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import io.github.describeadmin.common.api.BizException;
 import io.github.describeadmin.system.entity.SysConfig;
 import io.github.describeadmin.system.entity.SysDictData;
 import io.github.describeadmin.system.entity.SysDictType;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 字典与参数配置的读穿缓存/失效验证（框架提供）。
@@ -106,6 +108,129 @@ class DictConfigModuleIT extends AbstractMySqlIntegrationTest {
         update.setConfigValue("v3");
         configService.updateById(update);
         assertThat(configService.getValue("config-cache-test")).isEqualTo("v3");
+    }
+
+    @Test
+    @DisplayName("save 强制清空 configType：API 新增的参数不能伪装成内置")
+    void saveAlwaysClearsConfigType() {
+        SysConfig config = new SysConfig();
+        config.setConfigKey("config-type-spoof-test");
+        config.setConfigValue("v1");
+        config.setConfigName("伪装内置测试参数");
+        config.setConfigType("Y");
+        configService.save(config);
+
+        SysConfig saved = configMapper.selectOne(
+                new QueryWrapper<SysConfig>().eq("config_key", "config-type-spoof-test"));
+        assertThat(saved.getConfigType()).isNull();
+    }
+
+    @Test
+    @DisplayName("内置参数（configType=Y）不允许删除，普通参数可以正常删除")
+    void removeByIdProtectsBuiltinConfig() {
+        // 当前版本没有内置种子数据，绕过 Service 直接改库模拟一条内置记录（手法同上）
+        SysConfig builtin = new SysConfig();
+        builtin.setConfigKey("config-builtin-test");
+        builtin.setConfigValue("builtin-value");
+        builtin.setConfigName("内置测试参数");
+        configMapper.insert(builtin);
+        SysConfig toMarkBuiltin = new SysConfig();
+        toMarkBuiltin.setId(builtin.getId());
+        toMarkBuiltin.setConfigType("Y");
+        configMapper.updateById(toMarkBuiltin);
+
+        assertThatThrownBy(() -> configService.removeById(builtin.getId()))
+                .isInstanceOf(BizException.class);
+        assertThat(configMapper.selectById(builtin.getId()))
+                .as("内置参数应仍然存在，删除应被拒绝")
+                .isNotNull();
+
+        SysConfig custom = new SysConfig();
+        custom.setConfigKey("config-custom-test");
+        custom.setConfigValue("v1");
+        custom.setConfigName("自定义测试参数");
+        configService.save(custom);
+
+        assertThat(configService.removeById(custom.getId())).isTrue();
+        assertThat(configMapper.selectById(custom.getId())).isNull();
+    }
+
+    @Test
+    @DisplayName("dictType 唯一性在应用层校验：新增/改类型重复都会被拒绝，改自身类型不受影响")
+    void dictTypeUniquenessEnforced() {
+        SysDictType first = new SysDictType();
+        first.setDictType("dict-unique-test");
+        first.setDictName("字典一");
+        first.setStatus(1);
+        dictTypeService.save(first);
+
+        SysDictType duplicate = new SysDictType();
+        duplicate.setDictType("dict-unique-test");
+        duplicate.setDictName("字典二");
+        duplicate.setStatus(1);
+        assertThatThrownBy(() -> dictTypeService.save(duplicate))
+                .as("新增时类型与既有记录重复应被拒绝")
+                .isInstanceOf(BizException.class);
+
+        SysDictType second = new SysDictType();
+        second.setDictType("dict-unique-test-2");
+        second.setDictName("字典二");
+        second.setStatus(1);
+        dictTypeService.save(second);
+
+        SysDictType renameToDuplicate = new SysDictType();
+        renameToDuplicate.setId(second.getId());
+        renameToDuplicate.setDictType("dict-unique-test");
+        assertThatThrownBy(() -> dictTypeService.updateById(renameToDuplicate))
+                .as("改类型改成与别的记录重复应被拒绝")
+                .isInstanceOf(BizException.class);
+
+        SysDictType renameToSelf = new SysDictType();
+        renameToSelf.setId(second.getId());
+        renameToSelf.setDictType("dict-unique-test-2");
+        renameToSelf.setDictName("字典二改名");
+        assertThat(dictTypeService.updateById(renameToSelf))
+                .as("类型不变、只改别的字段不应该被自身误判为重复")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("configKey 唯一性在应用层校验：新增/改键重复都会被拒绝，改自身键名不受影响")
+    void configKeyUniquenessEnforced() {
+        SysConfig first = new SysConfig();
+        first.setConfigKey("config-unique-test");
+        first.setConfigValue("v1");
+        first.setConfigName("参数一");
+        configService.save(first);
+
+        SysConfig duplicate = new SysConfig();
+        duplicate.setConfigKey("config-unique-test");
+        duplicate.setConfigValue("v2");
+        duplicate.setConfigName("参数二");
+        assertThatThrownBy(() -> configService.save(duplicate))
+                .as("新增时键名与既有记录重复应被拒绝")
+                .isInstanceOf(BizException.class);
+
+        SysConfig second = new SysConfig();
+        second.setConfigKey("config-unique-test-2");
+        second.setConfigValue("v2");
+        second.setConfigName("参数二");
+        configService.save(second);
+
+        SysConfig renameToDuplicate = new SysConfig();
+        renameToDuplicate.setId(second.getId());
+        renameToDuplicate.setConfigKey("config-unique-test");
+        assertThatThrownBy(() -> configService.updateById(renameToDuplicate))
+                .as("改键改成与别的记录重复应被拒绝")
+                .isInstanceOf(BizException.class);
+
+        SysConfig renameToSelf = new SysConfig();
+        renameToSelf.setId(second.getId());
+        renameToSelf.setConfigKey("config-unique-test-2");
+        renameToSelf.setConfigValue("v3");
+        assertThat(configService.updateById(renameToSelf))
+                .as("键名不变、只改别的字段不应该被自身误判为重复")
+                .isTrue();
     }
 
     private static SysDictData newDictData(String dictType, String label, String value) {
