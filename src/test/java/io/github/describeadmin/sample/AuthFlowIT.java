@@ -1,5 +1,7 @@
 package io.github.describeadmin.sample;
 
+import io.github.describeadmin.cache.api.CacheProvider;
+import io.github.describeadmin.security.core.ImageCaptchaProvider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +34,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("认证链路（HTTP 端到端）")
 class AuthFlowIT extends AbstractMySqlIntegrationTest {
 
+    /** 与 describeadmin.security.captcha.trigger-threshold 的默认值一致。 */
+    private static final int CAPTCHA_TRIGGER_THRESHOLD = 3;
+
     @Autowired TestRestTemplate rest;
+    @Autowired CacheProvider cacheProvider;
 
     // ------------------------------------------------------------------ 登录
 
@@ -255,7 +261,107 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
         assertThat(dept.get("createBy")).as("审计人应由框架自动填充").isNotNull();
     }
 
+    // ------------------------------------------------------------------ 验证码
+
+    @Test
+    @DisplayName("GET /api/auth/captcha 免认证，返回图形验证码挑战")
+    void captchaEndpointIsPermitAllAndReturnsImage() {
+        ResponseEntity<Map> resp = rest.getForEntity("/api/auth/captcha", Map.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> challenge = captchaData(resp);
+        assertThat(challenge.get("type")).isEqualTo("image");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) challenge.get("payload");
+        assertThat((String) payload.get("image")).startsWith("data:image/png;base64,");
+    }
+
+    @Test
+    @DisplayName("渐进式验证码：未达阈值不要求，达到阈值后必须带验证码，且一次性防重放")
+    void progressiveCaptchaTriggersAfterThresholdAndIsOneTimeUse() {
+        String username = "captcha-progressive";
+        createUser(username, "right-password-1");
+
+        // 阈值之内仍是普通的认证失败，不要求验证码
+        for (int i = 0; i < CAPTCHA_TRIGGER_THRESHOLD - 1; i++) {
+            ResponseEntity<String> resp = login(username, "wrong-password");
+            assertThat(resp.getBody())
+                    .as("第 " + (i + 1) + " 次失败不应提前要求验证码")
+                    .contains("\"code\":40102");
+        }
+
+        // 第 CAPTCHA_TRIGGER_THRESHOLD 次失败后达到阈值，从此起不带验证码直接被拒绝，
+        // 哪怕接下来这次密码其实是对的
+        login(username, "wrong-password");
+        ResponseEntity<String> withoutCaptcha = login(username, "right-password-1");
+        assertThat(withoutCaptcha.getBody())
+                .as("达到阈值后必须要求验证码，即使密码正确")
+                .contains("\"code\":40103");
+
+        // 拿一个真实验证码，直接从注入的 CacheProvider 读出正确答案——图形验证码是给人眼看的，
+        // 自动化测试没法"识图"，ImageCaptchaProvider.CACHE_KEY_PREFIX 就是为这条路径公开的
+        String captchaId = captchaData(rest.getForEntity("/api/auth/captcha", Map.class))
+                .get("captchaId").toString();
+        String answer = correctAnswerOf(captchaId);
+
+        // 验证码正确、密码仍然错误：两层校验相互独立
+        ResponseEntity<String> wrongPasswordWithCaptcha = rest.postForEntity("/api/auth/login",
+                json(Map.of("type", "password", "username", username, "password", "wrong-password",
+                        "captchaId", captchaId, "captchaCode", answer)),
+                String.class);
+        assertThat(wrongPasswordWithCaptcha.getBody()).contains("\"code\":40102");
+
+        // 同一 captchaId 已经被上一次校验消费掉了，哪怕这次带上正确密码，也只会拿到"验证码失效"
+        ResponseEntity<String> reused = rest.postForEntity("/api/auth/login",
+                json(Map.of("type", "password", "username", username, "password", "right-password-1",
+                        "captchaId", captchaId, "captchaCode", answer)),
+                String.class);
+        assertThat(reused.getBody())
+                .as("验证码必须是一次性的，不能重放")
+                .contains("\"code\":40104");
+
+        // 换一张新验证码，配合正确密码，登录成功
+        String freshCaptchaId = captchaData(rest.getForEntity("/api/auth/captcha", Map.class))
+                .get("captchaId").toString();
+        String freshAnswer = correctAnswerOf(freshCaptchaId);
+
+        ResponseEntity<Map> success = rest.postForEntity("/api/auth/login",
+                json(Map.of("type", "password", "username", username, "password", "right-password-1",
+                        "captchaId", freshCaptchaId, "captchaCode", freshAnswer)),
+                Map.class);
+        assertThat(success.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(((Map<?, ?>) success.getBody().get("data")).get("token")).asString().isNotBlank();
+    }
+
     // ------------------------------------------------------------------ 工具
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> captchaData(ResponseEntity<Map> resp) {
+        return (Map<String, Object>) resp.getBody().get("data");
+    }
+
+    private String correctAnswerOf(String captchaId) {
+        return cacheProvider.get(ImageCaptchaProvider.CACHE_KEY_PREFIX + captchaId, String.class)
+                .orElseThrow(() -> new IllegalStateException("测试前置条件：验证码答案应存在于缓存中"));
+    }
+
+    private ResponseEntity<String> login(String username, String password) {
+        return rest.postForEntity("/api/auth/login",
+                json(Map.of("type", "password", "username", username, "password", password)),
+                String.class);
+    }
+
+    private void createUser(String username, String password) {
+        ResponseEntity<Map> created = rest.exchange("/api/system/user/with-password",
+                HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "username", username,
+                        "password", password,
+                        "nickname", "验证码测试账号",
+                        "status", 1), bearer(tokenOfAdmin())),
+                Map.class);
+        assertThat(created.getStatusCode()).as("前置条件：建号应成功").isEqualTo(HttpStatus.OK);
+    }
 
     private Map<?, ?> loginAsAdmin() {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
