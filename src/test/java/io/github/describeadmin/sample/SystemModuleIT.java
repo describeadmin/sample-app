@@ -159,13 +159,72 @@ class SystemModuleIT extends AbstractMySqlIntegrationTest {
     void resetPassword() {
         SysUser u = new SysUser();
         u.setUsername("lisi");
-        SysUser created = userService.createUser(u, "old-password", List.of());
+        // "old-password"/"new-password" 本身只有 2 类字符（小写字母+连字符），
+        // 不满足密码策略"至少 3 类"的要求（连字符算 1 类特殊字符，但缺数字），补一位数字即可合规
+        SysUser created = userService.createUser(u, "old-password-1", List.of());
 
-        userService.resetPassword(created.getId(), "new-password");
+        userService.resetPassword(created.getId(), "new-password-1");
 
         String hash = userService.getById(created.getId()).getPassword();
-        assertThat(passwordEncoder.matches("old-password", hash)).isFalse();
-        assertThat(passwordEncoder.matches("new-password", hash)).isTrue();
+        assertThat(passwordEncoder.matches("old-password-1", hash)).isFalse();
+        assertThat(passwordEncoder.matches("new-password-1", hash)).isTrue();
+    }
+
+    @Test
+    @DisplayName("密码复杂度策略：createUser/resetPassword/changeOwnPassword 三处入口全部生效")
+    void passwordPolicyAppliesToAllThreeEntryPoints() {
+        // createUser：只有小写字母一类，长度也不够
+        SysUser weak = new SysUser();
+        weak.setUsername("weak-pwd-create");
+        assertThatThrownBy(() -> userService.createUser(weak, "abcdefg", List.of()))
+                .hasMessageContaining("密码");
+
+        // resetPassword（管理员改别人）：只有小写字母+数字两类
+        SysUser u = new SysUser();
+        u.setUsername("weak-pwd-reset");
+        SysUser created = userService.createUser(u, "Pwd-123456!", List.of());
+        assertThatThrownBy(() -> userService.resetPassword(created.getId(), "abcdefg1"))
+                .hasMessageContaining("密码需同时包含");
+
+        // changeOwnPassword（自助改密）：新密码同样受策略约束
+        assertThatThrownBy(() -> userService.changeOwnPassword(created.getId(), "Pwd-123456!", "abcdefg1"))
+                .hasMessageContaining("密码需同时包含");
+
+        // 旧密码错误应该在密码策略校验之前就被拦下：即使 newPassword 本身不合规（只有2类字符），
+        // 拿到的也应该是"原密码不正确"，而不是密码策略的报错——否则说明校验顺序反了
+        assertThatThrownBy(() ->
+                userService.changeOwnPassword(created.getId(), "wrong-old-pwd", "abcdefg1"))
+                .as("旧密码错误应该在密码策略之前就被拦下")
+                .hasMessageContaining("原密码不正确");
+        assertThatThrownBy(() -> userService.changeOwnPassword(created.getId(), "Pwd-123456!", "Pwd-123456!"))
+                .hasMessageContaining("新密码不能与旧密码相同");
+    }
+
+    @Test
+    @DisplayName("自助改资料：更新姓名/手机号/邮箱，且手机号唯一性校验同样生效")
+    void updateOwnProfileUpdatesNicknameMobileEmail() {
+        SysUser u = new SysUser();
+        u.setUsername("profile-self-user");
+        u.setNickname("旧姓名");
+        SysUser created = userService.createUser(u, "Pwd-123456!", List.of());
+
+        userService.updateOwnProfile(created.getId(), "新姓名", "13900000001", "new-profile@example.com");
+
+        SysUser fromDb = userService.getById(created.getId());
+        assertThat(fromDb.getNickname()).isEqualTo("新姓名");
+        assertThat(fromDb.getMobile()).isEqualTo("13900000001");
+        assertThat(fromDb.getEmail()).isEqualTo("new-profile@example.com");
+        // 用户名不接受这个方法修改
+        assertThat(fromDb.getUsername()).isEqualTo("profile-self-user");
+
+        SysUser other = new SysUser();
+        other.setUsername("profile-other-user");
+        other.setMobile("13900000002");
+        userService.createUser(other, "Pwd-123456!", List.of());
+
+        assertThatThrownBy(() ->
+                userService.updateOwnProfile(created.getId(), "新姓名", "13900000002", null))
+                .hasMessageContaining("手机号已被占用");
     }
 
     @Test

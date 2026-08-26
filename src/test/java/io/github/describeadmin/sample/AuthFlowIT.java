@@ -336,6 +336,104 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
         assertThat(((Map<?, ?>) success.getBody().get("data")).get("token")).asString().isNotBlank();
     }
 
+    // ------------------------------------------------------------------ 个人中心：自助资料 / 改密码
+
+    @Test
+    @DisplayName("GET/PUT /api/auth/profile：自助改姓名/手机号/邮箱，用户名不受影响")
+    void profileEndpointsAllowSelfServiceUpdate() {
+        String username = "profile-http-user";
+        createUser(username, "Pwd-123456!");
+        String token = tokenOf(username, "Pwd-123456!");
+
+        ResponseEntity<Map> before = rest.exchange("/api/auth/profile", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> profile = (Map<String, Object>) before.getBody().get("data");
+        assertThat(profile.get("username")).isEqualTo(username);
+
+        ResponseEntity<Map> updated = rest.exchange("/api/auth/profile", HttpMethod.PUT,
+                new HttpEntity<>(Map.of("nickname", "改名后", "mobile", "13911112222",
+                        "email", "profile-http@example.com"), bearer(token)),
+                Map.class);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<Map> after = rest.exchange("/api/auth/profile", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reloaded = (Map<String, Object>) after.getBody().get("data");
+        assertThat(reloaded.get("nickname")).isEqualTo("改名后");
+        assertThat(reloaded.get("mobile")).isEqualTo("13911112222");
+        assertThat(reloaded.get("email")).isEqualTo("profile-http@example.com");
+        // 用户名不接受这个端点修改
+        assertThat(reloaded.get("username")).isEqualTo(username);
+    }
+
+    @Test
+    @DisplayName("PUT /api/auth/profile：手机号已被别人占用时被拒绝，即使操作者是无角色的普通用户")
+    void profileEndpointRejectsMobileTakenByAnotherUser() {
+        // 这条测试特意用两个都没有角色（因此 dataScope=SELF）的普通用户互相冲突——
+        // 唯一性校验必须是全局的，不能因为操作者自己的数据权限范围看不到对方就放行
+        createUser("profile-http-owner", "Pwd-123456!");
+        String ownerToken = tokenOf("profile-http-owner", "Pwd-123456!");
+        rest.exchange("/api/auth/profile", HttpMethod.PUT,
+                new HttpEntity<>(Map.of("nickname", "占用者", "mobile", "13922223333", "email", ""),
+                        bearer(ownerToken)),
+                Map.class);
+
+        createUser("profile-http-challenger", "Pwd-123456!");
+        String challengerToken = tokenOf("profile-http-challenger", "Pwd-123456!");
+
+        ResponseEntity<String> resp = rest.exchange("/api/auth/profile", HttpMethod.PUT,
+                new HttpEntity<>(Map.of("nickname", "挑战者", "mobile", "13922223333", "email", ""),
+                        bearer(challengerToken)),
+                String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("\"code\":40000").contains("手机号已被占用");
+    }
+
+    @Test
+    @DisplayName("PUT /api/auth/password：弱密码被密码策略拒绝，不吊销任何令牌")
+    void changePasswordEndpointRejectsWeakPassword() {
+        String username = "profile-http-weakpwd";
+        createUser(username, "Pwd-123456!");
+        String token = tokenOf(username, "Pwd-123456!");
+
+        // "abcdefg1" 只有小写字母+数字两类，不满足密码策略"至少3类"的要求
+        ResponseEntity<String> resp = rest.exchange("/api/auth/password", HttpMethod.PUT,
+                new HttpEntity<>(Map.of("oldPassword", "Pwd-123456!", "newPassword", "abcdefg1"),
+                        bearer(token)),
+                String.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(resp.getBody()).contains("\"code\":40000");
+        // 校验失败不应影响当前令牌
+        assertThat(rest.exchange("/api/auth/me", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), String.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("PUT /api/auth/password：合规新密码修改成功后，当前令牌立即失效，需用新密码重新登录")
+    void changePasswordEndpointSucceedsAndRevokesToken() {
+        String username = "profile-http-changepwd";
+        createUser(username, "Pwd-123456!");
+        String token = tokenOf(username, "Pwd-123456!");
+
+        ResponseEntity<String> resp = rest.exchange("/api/auth/password", HttpMethod.PUT,
+                new HttpEntity<>(Map.of("oldPassword", "Pwd-123456!", "newPassword", "Brand-New-Pwd-1!"),
+                        bearer(token)),
+                String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(rest.exchange("/api/auth/me", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), String.class).getStatusCode())
+                .as("改密成功后旧令牌应立即失效")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        assertThat(login(username, "Brand-New-Pwd-1!").getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
     // ------------------------------------------------------------------ 工具
 
     @SuppressWarnings("unchecked")
@@ -376,6 +474,16 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
 
     private String tokenOfAdmin() {
         return String.valueOf(loginAsAdmin().get("token"));
+    }
+
+    private String tokenOf(String username, String password) {
+        ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
+                json(Map.of("type", "password", "username", username, "password", password)),
+                Map.class);
+        assertThat(resp.getStatusCode()).as("登录应成功").isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
+        return String.valueOf(data.get("token"));
     }
 
     private static HttpEntity<Map<String, Object>> json(Map<String, Object> body) {
