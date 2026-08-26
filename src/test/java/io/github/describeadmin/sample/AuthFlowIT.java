@@ -144,8 +144,11 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
         Map<?, ?> data = loginAsAdmin();
 
         assertThat(data.get("refreshToken")).asString().isNotBlank();
-        assertThat(((Number) data.get("expiresIn")).longValue()).isPositive();
-        assertThat(((Number) data.get("refreshExpiresIn")).longValue()).isPositive();
+        // expiresIn/refreshExpiresIn 是 long，按框架的全局约定（CLAUDE.md 4.8）序列化为字符串——
+        // LoginResult 没有加 @JsonFormat(shape = NUMBER) 例外，因此这里拿到的是 String 而不是 Number，
+        // 强转 Number 会抛 ClassCastException。
+        assertThat(Long.parseLong(String.valueOf(data.get("expiresIn")))).isPositive();
+        assertThat(Long.parseLong(String.valueOf(data.get("refreshExpiresIn")))).isPositive();
     }
 
     @Test

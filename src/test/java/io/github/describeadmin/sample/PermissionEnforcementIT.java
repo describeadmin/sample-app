@@ -187,9 +187,16 @@ class PermissionEnforcementIT extends AbstractMySqlIntegrationTest {
         return String.valueOf(((Map<?, ?>) resp.getBody().get("data")).get("token"));
     }
 
-    /** 剔除响应体里每次都不同的 timestamp 字段，便于比对两条拒绝路径的产出。 */
+    /**
+     * 剔除响应体里每次都不同的 timestamp 字段，便于比对两条拒绝路径的产出。
+     *
+     * <p>{@code Result.timestamp} 是 long，按框架的全局约定（CLAUDE.md 4.8）序列化为字符串
+     * （即 {@code "timestamp":"171..."} 而不是 {@code "timestamp":171...}），
+     * 值两侧要各匹配一个可选的引号，否则正则匹配不上、timestamp 原样留在字符串里，
+     * 两次请求的 timestamp 几乎必然不同，导致本来该稳定通过的比对偶发失败。
+     */
     private static String withoutTimestamp(String body) {
-        return body == null ? null : body.replaceAll("\"timestamp\":\\d+,?", "");
+        return body == null ? null : body.replaceAll("\"timestamp\":\"?\\d+\"?,?", "");
     }
 
     private static HttpEntity<Map<String, Object>> json(Map<String, Object> body) {
