@@ -57,7 +57,7 @@ class OnlineSessionIT extends AbstractMySqlIntegrationTest {
         headers.add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
         ResponseEntity<Map> login = rest.postForEntity("/api/auth/login",
-                new HttpEntity<>(Map.of("type", "password", "username", "admin", "password", "admin123"), headers),
+                new HttpEntity<>(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword()), headers),
                 Map.class);
         assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
         String token = String.valueOf(((Map<?, ?>) login.getBody().get("data")).get("token"));
@@ -172,6 +172,8 @@ class OnlineSessionIT extends AbstractMySqlIntegrationTest {
                         "status", 1), bearer(tokenOfAdmin())),
                 Map.class);
         assertThat(created.getStatusCode()).as("前置条件：建号应成功").isEqualTo(HttpStatus.OK);
+        // 管理员建号会置强制改密标记；本组测的是在线会话，与强制改密无关，清掉它
+        clearPwdResetRequired(username);
 
         ResponseEntity<Map> login = rest.postForEntity("/api/auth/login",
                 json(Map.of("type", "password", "username", username, "password", "pwd-12345")),
@@ -182,7 +184,7 @@ class OnlineSessionIT extends AbstractMySqlIntegrationTest {
 
     private String tokenOfAdmin() {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword())),
                 Map.class);
         assertThat(resp.getStatusCode()).as("登录应成功，检查种子数据").isEqualTo(HttpStatus.OK);
         return String.valueOf(((Map<?, ?>) resp.getBody().get("data")).get("token"));

@@ -196,10 +196,12 @@ class LoginLockoutIT extends AbstractMySqlIntegrationTest {
                         "status", 1), bearer(tokenOfAdmin())),
                 Map.class);
         assertThat(created.getStatusCode()).as("前置条件：建号应成功").isEqualTo(HttpStatus.OK);
+        // 管理员建号会置强制改密标记；这些用例与强制改密无关，清掉它恢复原行为
+        clearPwdResetRequired(username);
     }
 
     private String tokenOfAdmin() {
-        return tokenOf("admin", "admin123");
+        return tokenOf("admin", devSeedAdminPassword());
     }
 
     private String tokenOf(String username, String password) {

@@ -228,7 +228,7 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     @DisplayName("用户名密码登录成功，并带出角色与权限")
     void loginSucceeds() {
         LoginUser user = authRegistry.authenticate(new AuthRequest("password",
-                Map.of("username", "admin", "password", "admin123")));
+                Map.of("username", "admin", "password", devSeedAdminPassword())));
 
         assertThat(user.getUsername()).isEqualTo("admin");
         assertThat(user.getNickname()).isEqualTo("超级管理员");
@@ -257,7 +257,7 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     @DisplayName("角色未设置首页时，登录用户的 homePath 为 null，交由前端落回全局默认值")
     void loginWithoutRoleHomePathReturnsNull() {
         LoginUser user = authRegistry.authenticate(new AuthRequest("password",
-                Map.of("username", "admin", "password", "admin123")));
+                Map.of("username", "admin", "password", devSeedAdminPassword())));
 
         assertThat(user.getHomePath()).isNull();
     }
@@ -384,7 +384,7 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
     @DisplayName("issueWithRefresh 签发的一对令牌都能独立解析，且 refresh 换发后旧的立即失效")
     void issueWithRefreshRotatesToken() {
         LoginUser loginUser = authRegistry.authenticate(new AuthRequest("password",
-                Map.of("username", "admin", "password", "admin123")));
+                Map.of("username", "admin", "password", devSeedAdminPassword())));
 
         var tokens = tokenStore.issueWithRefresh(loginUser);
         assertThat(tokenStore.resolve(tokens.getAccessToken())).isPresent();
@@ -408,7 +408,7 @@ class FrameworkRuntimeIT extends AbstractMySqlIntegrationTest {
      */
     private void asAdmin(Runnable action) {
         LoginUser admin = authRegistry.authenticate(new AuthRequest("password",
-                Map.of("username", "admin", "password", "admin123")));
+                Map.of("username", "admin", "password", devSeedAdminPassword())));
         List<GrantedAuthority> authorities = new ArrayList<>();
         for (String role : admin.getRoles()) {
             authorities.add(new SimpleGrantedAuthority("ROLE_" + role));

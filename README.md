@@ -36,9 +36,10 @@ docker run -d --name da-mysql -p 3307:3306 \
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-默认账号 `admin` / `admin123`。
+管理员账号 `admin`，口令由 dev-seed 首次启动**随机生成**——见启动日志或项目根 `.passwd` 文件。
 
-> ⚠️ `local` profile 每次启动都会重放建表与种子脚本，**只能用于本地开发**。
+> ⚠️ `local` profile 每次启动都会重放建表与种子脚本、并用 dev-seed 建随机口令的管理员，
+> **只能用于本地开发**。
 
 ## 这份 POM 里值得注意的几行
 

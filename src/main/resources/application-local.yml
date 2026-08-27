@@ -7,7 +7,8 @@
 #
 #   mvn spring-boot:run -Dspring-boot.run.profiles=local
 #
-# ⚠️ 仅供本地开发。默认账号 admin / admin123，且每次启动都会执行建表与种子脚本。
+# ⚠️ 仅供本地开发。每次启动都会执行建表与种子脚本。
+#    首次启动时 dev-seed 创建管理员 admin，口令【随机生成】——见启动日志或项目根 .passwd 文件。
 
 server:
   # 8080 在开发机上极易与其他项目撞车，本地 profile 用 8090。
@@ -58,6 +59,10 @@ describeadmin:
       - /api/auth/email/code
   auth:
     email:
+      enabled: true
+  system:
+    dev-seed:
+      # 只在本地开发打开：库里没有用户时创建管理员 admin，口令随机生成并写到项目根 .passwd
       enabled: true
 
 logging:

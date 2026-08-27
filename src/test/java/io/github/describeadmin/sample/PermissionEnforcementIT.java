@@ -164,6 +164,8 @@ class PermissionEnforcementIT extends AbstractMySqlIntegrationTest {
                         "status", 1), bearer(tokenOfAdmin())),
                 Map.class);
         assertThat(created.getStatusCode()).as("前置条件：建号应成功").isEqualTo(HttpStatus.OK);
+        // 管理员建号会置强制改密标记；本组测的是权限点校验，与强制改密无关，清掉它
+        clearPwdResetRequired(username);
 
         ResponseEntity<Map> login = rest.postForEntity("/api/auth/login",
                 json(Map.of("type", "password", "username", username, "password", "pwd-12345")),
@@ -181,7 +183,7 @@ class PermissionEnforcementIT extends AbstractMySqlIntegrationTest {
 
     private String tokenOfAdmin() {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword())),
                 Map.class);
         assertThat(resp.getStatusCode()).as("登录应成功，检查种子数据").isEqualTo(HttpStatus.OK);
         return String.valueOf(((Map<?, ?>) resp.getBody().get("data")).get("token"));

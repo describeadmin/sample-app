@@ -191,6 +191,8 @@ class DataScopePermissionIT extends AbstractMySqlIntegrationTest {
         u.setNickname(username);
         u.setDeptId(deptId);
         userService.createUser(u, PASSWORD, roleId == null ? List.of() : List.of(roleId));
+        // 管理员建号会置强制改密标记；数据权限用例要以这些用户身份查列表，与强制改密无关，清掉它
+        clearPwdResetRequired(username);
     }
 
     private Long menuIdOf(String permCode) {
@@ -216,6 +218,7 @@ class DataScopePermissionIT extends AbstractMySqlIntegrationTest {
                         "nickname", username), bearer(token)),
                 Map.class);
         assertThat(resp.getStatusCode()).as("前置条件：建号应成功: " + username).isEqualTo(HttpStatus.OK);
+        clearPwdResetRequired(username);
     }
 
     @SuppressWarnings("unchecked")

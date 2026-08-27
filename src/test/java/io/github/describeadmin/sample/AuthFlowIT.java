@@ -73,7 +73,7 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
     @DisplayName("登录接口本身免认证，否则没人进得来")
     void loginEndpointIsPermitAll() {
         ResponseEntity<String> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword())),
                 String.class);
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -462,11 +462,13 @@ class AuthFlowIT extends AbstractMySqlIntegrationTest {
                         "status", 1), bearer(tokenOfAdmin())),
                 Map.class);
         assertThat(created.getStatusCode()).as("前置条件：建号应成功").isEqualTo(HttpStatus.OK);
+        // 管理员建号会置强制改密标记；这些用例与强制改密无关，清掉它恢复原行为
+        clearPwdResetRequired(username);
     }
 
     private Map<?, ?> loginAsAdmin() {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword())),
                 Map.class);
         assertThat(resp.getStatusCode()).as("登录应成功，检查种子数据").isEqualTo(HttpStatus.OK);
         return (Map<?, ?>) resp.getBody().get("data");

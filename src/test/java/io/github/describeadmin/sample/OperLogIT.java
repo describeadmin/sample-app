@@ -119,7 +119,7 @@ class OperLogIT extends AbstractMySqlIntegrationTest {
 
     private String tokenOfAdmin() {
         ResponseEntity<Map> resp = rest.postForEntity("/api/auth/login",
-                json(Map.of("type", "password", "username", "admin", "password", "admin123")),
+                json(Map.of("type", "password", "username", "admin", "password", devSeedAdminPassword())),
                 Map.class);
         assertThat(resp.getStatusCode()).as("登录应成功，检查种子数据").isEqualTo(HttpStatus.OK);
         return String.valueOf(((Map<?, ?>) resp.getBody().get("data")).get("token"));
