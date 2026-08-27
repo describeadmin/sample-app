@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,7 +31,7 @@ class OnlineSessionIT extends AbstractMySqlIntegrationTest {
     @Autowired TestRestTemplate rest;
 
     @Test
-    @DisplayName("当前登录会话出现在在线列表里，中文昵称不乱码")
+    @DisplayName("当前登录会话出现在在线列表里，分页信封 + 中文昵称不乱码")
     void currentSessionIsListed() {
         String token = tokenOfAdmin();
 
@@ -38,9 +39,52 @@ class OnlineSessionIT extends AbstractMySqlIntegrationTest {
                 new HttpEntity<>(bearer(token)), String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // 返回的是 PageResult 而非裸数组
+        assertThat(resp.getBody()).contains("\"records\":").contains("\"total\":");
         assertThat(resp.getBody()).contains("\"username\":\"admin\"");
         // 值断言，顺带守住字符集（CLAUDE.md 3.6）
         assertThat(resp.getBody()).contains("超级管理员");
+        // 新增的来源字段总是出现在响应里（可能为 null）
+        assertThat(resp.getBody()).contains("\"ip\":").contains("\"device\":");
+    }
+
+    @Test
+    @DisplayName("登录时的 IP 与设备写进会话，在线列表里能看到")
+    void loginSourceIsRecorded() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
+        headers.add("X-Forwarded-For", "203.0.113.42, 10.0.0.1");
+        headers.add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+        ResponseEntity<Map> login = rest.postForEntity("/api/auth/login",
+                new HttpEntity<>(Map.of("type", "password", "username", "admin", "password", "admin123"), headers),
+                Map.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String token = String.valueOf(((Map<?, ?>) login.getBody().get("data")).get("token"));
+
+        ResponseEntity<String> resp = rest.exchange("/api/system/online?size=200", HttpMethod.GET,
+                new HttpEntity<>(bearer(token)), String.class);
+
+        // X-Forwarded-For 的第一段是真实客户端；UA 解析成"浏览器 · 系统"
+        assertThat(resp.getBody()).contains("\"ip\":\"203.0.113.42\"");
+        assertThat(resp.getBody()).contains("\"device\":\"Chrome · Windows\"");
+    }
+
+    @Test
+    @DisplayName("size 参数生效：一页最多返回 size 条")
+    @SuppressWarnings("unchecked")
+    void pageSizeIsRespected() {
+        // 多开几个会话，保证总数 > 1
+        tokenOfNewUser("online-page-a");
+        tokenOfNewUser("online-page-b");
+
+        ResponseEntity<Map> resp = rest.exchange("/api/system/online?current=1&size=1",
+                HttpMethod.GET, new HttpEntity<>(bearer(tokenOfAdmin())), Map.class);
+
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> data = (Map<String, Object>) resp.getBody().get("data");
+        assertThat((List<?>) data.get("records")).hasSize(1);
+        assertThat(((Number) data.get("total")).intValue()).isGreaterThan(1);
     }
 
     @Test
