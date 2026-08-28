@@ -11,6 +11,14 @@ describeadmin:
     # ⚠️ 不要硬编码在代码里 —— 目标库换成达梦/金仓/OceanBase 时改这里即可
     db-type: MYSQL
     max-limit: 500
+  crypto:
+    # employee 模块的身份证号 / 手机号加密入库（framework-crypto-starter，AES-256-GCM）。
+    # ⚠️ 下面是【示例密钥】，仅供本地/CI 跑通。生产必须用环境变量覆盖：
+    #     CRYPTO_AES_KEY / CRYPTO_AES_IDX_KEY —— 各为 `openssl rand -base64 32` 产出。
+    # 密钥缺失或长度不对时应用启动期直接失败（不会拖到第一次加密才报错）。
+    aes:
+      key: ${CRYPTO_AES_KEY:tV2kUXygBhFgZwNBKwhHX9J73TyPNUsJ3xZQ7kVYhOs=}
+      blind-index-key: ${CRYPTO_AES_IDX_KEY:F1K3bsyOg+gfiCGEbUmeO8Hm1N1W8DGIj6OK2XfEMZw=}
 
 mybatis-plus:
   global-config:

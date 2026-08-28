@@ -70,9 +70,9 @@ public abstract class AbstractMySqlIntegrationTest {
         // 由 Spring Boot 自动执行建表与种子脚本，保证每次测试拿到确定的初始状态
         registry.add("spring.sql.init.mode", () -> "always");
         registry.add("spring.sql.init.schema-locations",
-                () -> "classpath:db/schema-rbac.sql,classpath:db/schema-biz_project.sql");
+                () -> "classpath:db/schema-rbac.sql,classpath:db/schema-biz_project.sql,classpath:db/schema-biz_employee.sql,classpath:db/schema-biz_nurse.sql");
         registry.add("spring.sql.init.data-locations",
-                () -> "classpath:db/seed-rbac.sql,classpath:db/menu-biz_project.sql");
+                () -> "classpath:db/seed-rbac.sql,classpath:db/menu-biz_project.sql,classpath:db/menu-biz_employee.sql,classpath:db/menu-biz_nurse.sql");
 
         // ⚠️ 必须显式指定，否则 Spring 用【平台默认编码】读取 SQL 脚本文件。
         // 在中文 Windows 上默认是 GBK，会把 UTF-8 的脚本读坏，插进库里的中文全是乱码，

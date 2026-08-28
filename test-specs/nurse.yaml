@@ -1,0 +1,123 @@
+# 护理员 —— 端到端验收用例
+#
+# 由 codegen 生成，之后按模块特性手工补充：加密入库校验 + 盲索引精确搜索。
+# 执行方式见 develop_plan.md 第五章。
+#
+# 约定：所有交互元素必须带 data-testid，命名 <模块>-<对象>-<动作>（CLAUDE.md 4.4）。
+# 没有 data-testid 的元素视为未完成，本用例会定位失败。
+
+scenario: 新增护理员后在列表中可见，且手机号/身份证密文入库
+preconditions:
+  - login_as: admin
+steps:
+  - action: navigate
+    target: /nurse
+  - action: click
+    selector: '[data-testid="nurse-add-btn"]'
+  - action: fill
+    selector: '[data-testid="nurse-nurse-name-input"]'
+    value: "测试护理员姓名-自动化"
+  - action: fill
+    selector: '[data-testid="nurse-mobile-input"]'
+    value: "13800001234"
+  - action: fill
+    selector: '[data-testid="nurse-id-card-input"]'
+    value: "110101199003072316"
+  - action: fill
+    selector: '[data-testid="nurse-photo-input"]'
+    value: "https://example.com/nurse/1.jpg"
+  - action: click
+    selector: '[data-testid="nurse-submit-btn"]'
+assertions:
+  # UI 与 DB 双重校验：仅凭页面看起来正常不足以下结论（develop_plan.md 5.4）
+  - type: ui
+    selector: '[data-testid="nurse-table"]'
+    expect: contains_text("测试护理员姓名-自动化")
+  - type: db
+    # 比对具体值而非 COUNT(*) —— 字符集损坏时计数依然正确（CLAUDE.md 3.6）
+    query: 'SELECT nurse_name FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND deleted = 0'
+    expect: equals("测试护理员姓名-自动化")
+  - type: db
+    # ⚠️ 手机号绝不能明文落库：裸列必须是带算法前缀的密文，且不等于明文
+    query: 'SELECT mobile FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND deleted = 0'
+    expect: starts_with("AES256-GCM:")
+  - type: db
+    query: 'SELECT mobile FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND deleted = 0'
+    expect: not_equals("13800001234")
+  - type: db
+    # 身份证号同理
+    query: 'SELECT id_card FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND deleted = 0'
+    expect: starts_with("AES256-GCM:")
+  - type: db
+    # 盲索引列由拦截器自动填充（HmacSHA256 十六进制，64 字符），供精确搜索
+    query: 'SELECT CHAR_LENGTH(mobile_idx) FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND deleted = 0'
+    expect: equals(64)
+  - type: db
+    # 审计字段应由框架自动填充，业务代码不赋值
+    query: 'SELECT COUNT(*) FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'' AND create_time IS NOT NULL AND deleted = 0'
+    expect: equals(1)
+evidence:
+  - screenshot: after_each_step
+  - console_log: on_error
+  - network_log: on_error
+
+---
+scenario: 按完整手机号精确搜索命中该护理员（盲索引）
+preconditions:
+  - login_as: admin
+  - db_seed: 'INSERT INTO biz_nurse (nurse_name, create_time, update_time, deleted, version) VALUES (''测试护理员姓名-自动化'', NOW(), NOW(), 0, 0)'
+steps:
+  - action: navigate
+    target: /nurse
+  - action: click
+    selector: '[data-testid="nurse-add-btn"]'
+  - action: fill
+    selector: '[data-testid="nurse-nurse-name-input"]'
+    value: "盲索引搜索-护理员"
+  - action: fill
+    selector: '[data-testid="nurse-mobile-input"]'
+    value: "13900005678"
+  - action: click
+    selector: '[data-testid="nurse-submit-btn"]'
+  - action: fill
+    selector: '[data-testid="nurse-mobile-search"]'
+    value: "13900005678"
+  - action: click
+    selector: '[data-testid="nurse-search-btn"]'
+assertions:
+  - type: ui
+    selector: '[data-testid="nurse-table"]'
+    expect: contains_text("盲索引搜索-护理员")
+  - type: ui
+    # 精确匹配：另一条测试数据不应出现在结果里
+    selector: '[data-testid="nurse-table"]'
+    expect: not_contains_text("测试护理员姓名-自动化")
+evidence:
+  - screenshot: after_each_step
+  - console_log: on_error
+  - network_log: on_error
+
+---
+scenario: 删除护理员后列表中不再可见且物理行保留
+preconditions:
+  - login_as: admin
+  - db_seed: 'INSERT INTO biz_nurse (nurse_name, create_time, update_time, deleted, version) VALUES (''测试护理员姓名-自动化'', NOW(), NOW(), 0, 0)'
+steps:
+  - action: navigate
+    target: /nurse
+  - action: click
+    selector: '[data-testid="nurse-delete-btn"]'
+  - action: click
+    selector: '[data-testid="nurse-confirm-btn"]'
+assertions:
+  - type: ui
+    selector: '[data-testid="nurse-table"]'
+    expect: not_contains_text("测试护理员姓名-自动化")
+  - type: db
+    # 逻辑删除：列表查询过滤掉，但物理行必须仍在
+    query: 'SELECT deleted FROM biz_nurse WHERE nurse_name = ''测试护理员姓名-自动化'''
+    expect: equals(1)
+evidence:
+  - screenshot: after_each_step
+  - console_log: on_error
+  - network_log: on_error
