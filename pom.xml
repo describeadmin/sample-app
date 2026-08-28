@@ -92,6 +92,19 @@
     </dependency>
 
     <!--
+      敏感字段加密插件：employee 模块的身份证号 / 手机号加密入库。
+      与 framework-auth-email-starter 一样是未发布到 Central 的插件——framework-bom
+      不仲裁插件版本，必须【显式写版本号】，且需先
+      `mvn -f framework-crypto-starter/pom.xml install -DskipTests -Dgpg.skip=true`
+      装进本机 .m2。只用 AES-256-GCM（JDK 原生），不引 Bouncy Castle，SM4 能力不装配。
+    -->
+    <dependency>
+      <groupId>io.github.describeadmin</groupId>
+      <artifactId>framework-crypto-starter</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+
+    <!--
       JDBC 驱动【由业务方自己声明】，框架不提供（develop_plan.md 2.3.2）。
       这里同样不写版本 —— 由 framework-bom 给出 5.7-safe 的默认值 8.2.0。
       若本业务方的目标库是 MySQL 8.0+ 或国产化数据库，在此处显式指定版本/换成对应驱动即可。
