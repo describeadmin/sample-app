@@ -1,4 +1,4 @@
-package io.github.describeadmin.sample.project.entity;
+package io.github.describeadmin.sample.entity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.github.describeadmin.mybatis.api.BaseEntity;

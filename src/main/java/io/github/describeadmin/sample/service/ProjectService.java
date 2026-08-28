@@ -1,8 +1,8 @@
-package io.github.describeadmin.sample.project.service;
+package io.github.describeadmin.sample.service;
 
 import io.github.describeadmin.mybatis.api.BaseService;
-import io.github.describeadmin.sample.project.entity.ProjectEntity;
-import io.github.describeadmin.sample.project.mapper.ProjectMapper;
+import io.github.describeadmin.sample.entity.ProjectEntity;
+import io.github.describeadmin.sample.mapper.ProjectMapper;
 import org.springframework.stereotype.Service;
 
 /**
