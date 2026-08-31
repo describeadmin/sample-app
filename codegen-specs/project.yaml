@@ -11,6 +11,9 @@ entity: Project
 table: biz_project
 comment: 项目
 apiPrefix: /api/project
+# flat 布局：后端 Java 文件落在 <basePackage>.<layer>，不带 project 模块段
+# （前端/SQL/菜单/权限点不受影响）。用它验证 flat 模式的端到端可用性。
+layout: flat
 
 fields:
   - name: projectName

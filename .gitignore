@@ -17,6 +17,8 @@ secring.*
 .env
 .env.*
 !.env.example
+# dev-seed 生成的初始管理员明文口令
+.passwd
 
 # ---- 前端 ----
 node_modules/

@@ -1,7 +1,7 @@
-package io.github.describeadmin.sample.project.mapper;
+package io.github.describeadmin.sample.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import io.github.describeadmin.sample.project.entity.ProjectEntity;
+import io.github.describeadmin.sample.entity.ProjectEntity;
 
 /**
  * 项目 Mapper。

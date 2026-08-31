@@ -1,0 +1,55 @@
+# sample-app 的护理员管理模块定义。
+#
+# 与 project.yaml / employee.yaml 一样是 codegen 的真实消费样本：后端四件套、DDL、
+# 菜单 SQL、前端页面与验收用例全部由它生成。
+#
+# ⚠️ 手机号码 / 身份证号码需要【加密入库】且【支持按明文精确搜索】——codegen 的类型系统
+#    里没有"加密字段"这个概念，生成后由人工在实体 / Controller / DDL 上补：
+#      1. NurseEntity：mobile / idCard 加 @TableField(typeHandler = AesEncryptedStringTypeHandler.class)
+#         并各配一个 @BlindIndex 盲索引字段（mobileIdx / idCardIdx）
+#      2. schema-biz_nurse.sql：补 mobile_idx / id_card_idx 两列（VARCHAR(64)）+ 各一个 KEY
+#      3. NurseController：注入 CryptoTemplate，在 buildListWrapper 里按 blindIndex(明文) 等值匹配
+#    因此这里 mobile / idCard 用 string 且 length 预留到 255（密文 Base64 膨胀），
+#    并且【不写 query】——codegen 的 query 只会对密文列做等值/模糊，永远匹配不上明文。
+
+basePackage: io.github.describeadmin.sample
+module: nurse
+entity: Nurse
+table: biz_nurse
+comment: 护理员
+apiPrefix: /api/nurse
+
+fields:
+  - name: nurseName
+    type: string
+    length: 64
+    nullable: false
+    comment: 护理员姓名
+    query: like
+    indexed: true
+
+  - name: mobile
+    type: string
+    length: 255
+    comment: 手机号码
+
+  - name: idCard
+    type: string
+    length: 255
+    comment: 身份证号码
+
+  - name: photo
+    type: string
+    length: 512
+    comment: 护理员照片
+
+  - name: birthDate
+    type: date
+    comment: 出生年月
+
+  - name: employmentType
+    type: string
+    length: 32
+    comment: 从业类型
+    query: eq
+    indexed: true

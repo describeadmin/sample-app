@@ -1,0 +1,50 @@
+# sample-app 的员工管理模块定义。
+#
+# 与 project.yaml 一样是 codegen 的真实消费样本：后端四件套、DDL、菜单 SQL、
+# 前端页面与验收用例全部由它生成。
+#
+# ⚠️ 身份证号 / 手机号需要加密入库（framework-crypto-starter），而 codegen 的类型
+#    系统里没有"加密字段"这个概念——生成后由人工在 EmployeeEntity 上补
+#    @TableField(typeHandler = AesEncryptedStringTypeHandler.class) 等注解。
+#    因此这里 idCard / mobile 用 string 且 length 预留到 255（密文 Base64 膨胀），
+#    并且不加 query（盲索引才能精确查密文列，本模块未启用）。
+
+basePackage: io.github.describeadmin.sample
+module: employee
+entity: Employee
+table: biz_employee
+comment: 员工
+apiPrefix: /api/employee
+
+fields:
+  - name: employeeName
+    type: string
+    length: 64
+    nullable: false
+    comment: 员工姓名
+    query: like
+    indexed: true
+
+  - name: gender
+    type: string
+    length: 8
+    comment: 性别
+
+  - name: idCard
+    type: string
+    length: 255
+    comment: 身份证号
+
+  - name: mobile
+    type: string
+    length: 255
+    comment: 手机号码
+
+  - name: address
+    type: string
+    length: 255
+    comment: 家庭住址
+
+  - name: remark
+    type: text
+    comment: 备注
