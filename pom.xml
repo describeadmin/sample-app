@@ -31,7 +31,7 @@
 
   <properties>
     <java.version>17</java.version>
-    <describeadmin.version>0.2.0-SNAPSHOT</describeadmin.version>
+    <describeadmin.version>0.2.0</describeadmin.version>
     <!-- 默认取最严格的那条线；CI 矩阵覆盖为 mysql:8.4 -->
     <mysql.image>mysql:5.7</mysql.image>
   </properties>
@@ -74,17 +74,15 @@
     </dependency>
 
     <!--
-      邮箱验证码登录插件。第一次在本仓引入未发布到 Central 的插件——
-      framework-bom 刻意不仲裁插件版本（docs/registry.md 准入规范第 4 条：
-      插件版本与框架版本无对应关系），因此这里必须【显式写版本号】，
+      邮箱验证码登录插件。framework-bom 刻意不仲裁插件版本（docs/registry.md 准入规范
+      第 4 条：插件版本与框架版本无对应关系），因此这里必须【显式写版本号】，
       与上面几个框架 starter"不写版本号、由 BOM 仲裁"的姿势不同。
-      未发布期间需要先 `mvn -f framework-auth-email-starter/pom.xml install -Dgpg.skip=true`
-      把它装进本机 .m2 才能解析到。
+      0.2.0 起已在 Maven Central，正常解析。
     -->
     <dependency>
       <groupId>io.github.describeadmin</groupId>
       <artifactId>framework-auth-email-starter</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -93,15 +91,13 @@
 
     <!--
       敏感字段加密插件：employee 模块的身份证号 / 手机号加密入库。
-      与 framework-auth-email-starter 一样是未发布到 Central 的插件——framework-bom
-      不仲裁插件版本，必须【显式写版本号】，且需先
-      `mvn -f framework-crypto-starter/pom.xml install -DskipTests -Dgpg.skip=true`
-      装进本机 .m2。只用 AES-256-GCM（JDK 原生），不引 Bouncy Castle，SM4 能力不装配。
+      framework-bom 不仲裁插件版本，必须【显式写版本号】。0.2.0 起已在 Maven Central。
+      只用 AES-256-GCM（JDK 原生），不引 Bouncy Castle，SM4 能力不装配。
     -->
     <dependency>
       <groupId>io.github.describeadmin</groupId>
       <artifactId>framework-crypto-starter</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0</version>
     </dependency>
 
     <!--
